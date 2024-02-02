@@ -1,5 +1,7 @@
 package com.example.jpanext.school;
 
+import com.example.jpanext.school.dto.ILCountDto;
+import com.example.jpanext.school.dto.ILCountProjection;
 import com.example.jpanext.school.entity.AttendingLectures;
 import com.example.jpanext.school.entity.Instructor;
 import com.example.jpanext.school.entity.Lecture;
@@ -10,11 +12,18 @@ import com.example.jpanext.school.repo.LectureRepository;
 import com.example.jpanext.school.repo.StudentRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.http.MediaType;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestMethod;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Set;
 
 @Slf4j
 @RestController
@@ -28,6 +37,45 @@ public class SchoolController {
     private final LectureRepository lectureRepository;
     private final AttendingLectureRepo attendingLectureRepo;
     private final InstructorRepository instructorRepository;
+
+
+    @GetMapping(value = "test-agg")
+    public String testAggregate() {
+        List<Object[]> results =
+                instructorRepository.selectILCountObject();
+        for (Object[] row: results) {
+            Instructor instructor = (Instructor) row[0];
+//            log.info(String.valueOf(row[1].getClass()));
+            Long count = (Long) row[1];
+            log.info("{}: {}", instructor.getName(), count);
+        }
+
+        List<ILCountDto> resultDtos =
+                instructorRepository.selectILCountDto();
+        for (ILCountDto dto: resultDtos) {
+            log.info("{}: {}",
+                    dto.getInstructor().getName(),
+                    dto.getCount());
+        }
+
+        List<ILCountProjection> resultProjs =
+                instructorRepository.selectILCountProj();
+        for (ILCountProjection projection: resultProjs) {
+            log.info("{}: {}",
+                    projection.getInstructor().getName(),
+                    projection.getLectureCount());
+        }
+
+        lectureRepository.selectWithStudentCount()
+                .forEach(projection ->
+                        log.info("{}: {}",
+                                projection.getLecture().getName(),
+                                projection.getStudentCount()));
+//                .forEach(objects ->
+//                        log.info("{}: {}", objects));
+
+        return "done";
+    }
 
     @GetMapping("test-query")
     public String testQuery() {
@@ -44,6 +92,12 @@ public class SchoolController {
                         lecture.getStartTime(),
                         lecture.getEndTime()));
 
+        lectureRepository.findLecturesByTimeNative(10, 15).forEach(lecture ->
+                log.info("{}: {} -> {}",
+                        lecture.getName(),
+                        lecture.getStartTime(),
+                        lecture.getEndTime()));
+
         log.info("=================== named parameters");
         lectureRepository.findLecturesByTimeNamed(10, 13).forEach(lecture ->
                 log.info("{}: {} -> {}",
@@ -51,6 +105,54 @@ public class SchoolController {
                         lecture.getStartTime(),
                         lecture.getEndTime()));
 
+        lectureRepository.findByDayIn(Set.of("mon", "tue")).forEach(lecture ->
+                log.info("{}: {}",
+                        lecture.getName(),
+                        lecture.getDay()));
+
+        Page<Lecture> lecturePage =
+                lectureRepository.findAll(PageRequest.of(0, 10));
+
+        lecturePage  = lectureRepository.findLecturesBeforeLunch(
+                PageRequest.of(0, 4));
+        lecturePage.stream().forEach(lecture ->
+                log.info("{}: {}", lecture.getName(), lecture.getStartTime()));
+
+        lectureRepository.findLecturesBeforeLunch(
+                Sort.by(Sort.Direction.DESC, "id")).forEach(lecture ->
+                log.info("{}: {}", lecture.getId(), lecture.getStartTime()));
+
+        lectureRepository.findLecturesBeforeLunchNative(
+                PageRequest.of(0, 4)).forEach(lecture ->
+                log.info("{}: {}", lecture.getId(), lecture.getStartTime()));
+
+        // 서로 다른 Repository에서 무관한 Entity를 조회하는 행위를 지양할것
+        /*lectureRepository.findInstructorsInLectureRepository().forEach(instructor ->
+                log.info("{}", instructor.getId()));*/
+
+        return "done";
+    }
+
+    @Transactional
+    @GetMapping("test-modifying")
+    public String modifying() {
+        log.info("modifying");
+        lectureRepository.toLongLectures().forEach(lecture ->
+                log.info("{}: {}",
+                        lecture.getName(),
+                        lecture.getEndTime() - lecture.getStartTime()));
+        lectureRepository.setLectureMaxHour3();
+        log.info("lectures over 3 hours: {}", lectureRepository.toLongLectures().size());
+
+        studentRepository.noAdvisorStudents().forEach(student ->
+                log.info("{}, {}", student.getId(), student.getName()));
+
+        Instructor instructor = instructorRepository.findById(1L).get();
+        log.info("rows affected: {}",
+                studentRepository.setAdvisorForStudent(instructor));
+
+        studentRepository.noAdvisorStudents().forEach(student ->
+                log.info("{}, {}", student.getId(), student.getName()));
 
         return "done";
     }
